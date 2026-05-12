@@ -1,0 +1,123 @@
+Core Routers (3)
+Device	Model	Role	Key IPs
+Router0	ISR4331	WAN Hub	Gi0/0/0: 200.1.2.1<br/>Gi0/0/1: 200.2.3.2
+Router6	2911	Site A Gateway	Gi0/0: 200.1.2.2<br/>Gi0/1: 192.168.1.1<br/>Gi0/2: 192.168.2.1
+Router7	2911	Site B Gateway	Gi0/0: 200.2.3.1<br/>Gi0/1: 202.20.20.1<br/>Gi0/2: 201.10.10.1
+Switches (4 L2 Switches)
+Device	Model	Ports	Role
+Switch1	2960-24TT	24 FE + 2 GE	Site A VLAN 10 (192.168.1.0/24)
+Switch2	2960-24TT	24 FE + 2 GE	Site A VLAN 20 (192.168.2.0/24)
+Switch3	2960-24TT	24 FE + 2 GE	Site B VLAN 30 (202.20.20.0/24)
+Switch4	2960-24TT	24 FE + 2 GE	Site B VLAN 40 (201.10.10.0/24)
+Servers (4)
+Device	Model	IP	Subnet	DHCP Pool
+Server1	Server-PT	192.168.1.3	192.168.1.0/24	serverPool (192.168.1.0/24)
+Server2	Server-PT	192.168.2.3	192.168.2.0/24	serverPool (192.168.2.0/24)
+Server3	Server-PT	202.20.20.2	202.20.20.0/24	serverPool (202.20.20.0/24)
+Server4	Server-PT	201.10.10.2	201.10.10.0/24	serverPool (201.10.10.0/24)
+PCs (4)
+Device	IP	Subnet	Gateway
+PC3	192.168.1.2	192.168.1.0/24	192.168.1.1
+PC4	192.168.1.4	192.168.1.0/24	192.168.1.1
+PC5	192.168.2.4	192.168.2.0/24	192.168.2.1
+PC6	192.168.2.2	192.168.2.0/24	192.168.2.1
+DETAILED CONFIGURATION ANALYSIS
+ROUTER0 (ISR4331) — WAN Hub
+text
+Copy
+Internet → [FW1: Outside→DMZ] → [FW2: DMZ→Inside] → Internal
+Interfaces:
+
+Gi0/0/0: 200.1.2.1/24 → connects to Router6 (Site A)
+Gi0/0/1: 200.2.3.2/24 → connects to Router7 (Site B)
+Gi0/0/2: Shutdown/unused
+Routing (RIP):
+
+text
+Copy
+DENY:   RFC1918 spoofing (10.0.x.x, 172.16.x.x, 192.168.x.x)
+PERMIT: TCP/80 (HTTP)
+PERMIT: TCP/443 (HTTPS)
+PERMIT: Established TCP connections
+DENY:   Everything else (implicit)
+→ Propagates WAN subnets to adjacent routers
+
+ROUTER6 (2911) — Site A Gateway
+text
+Copy
+PERMIT: VLAN 20 (10.0.20.x) → Database (10.0.30.x) on port 3306 (MySQL)
+PERMIT: VLAN 50 (10.0.50.x) → Database (10.0.30.x) on port 3306
+DENY:   Everything else
+Interfaces:
+
+Gi0/0: 200.1.2.2/24 → WAN to Router0 (access-list 10 out)
+Gi0/1: 192.168.1.1/24 → VLAN 10 (PC3, PC4, Server1)
+Gi0/2: 192.168.2.1/24 → VLAN 20 (PC5, PC6, Server2)
+Routing (RIP):
+
+text
+Copy
+Core-SW1: standby 1 ip 10.0.10.254, priority 110, preempt
+Core-SW2: standby 1 ip 10.0.10.254, priority 100, preempt
+ACL 10 (Outbound Filter on Gi0/0):
+
+text
+Copy
+ACC-SW1: FE0/3 → WEB-BLADE-1 (VLAN 20)
+         FE0/4 → WEB-BLADE-2 (VLAN 20)
+
+ACC-SW2: FE0/3 → WEB-BLADE-3 (VLAN 20)
+         FE0/4 → DB-BLADE-1 (VLAN 30)
+
+ACC-SW3: FE0/3 → DB-BLADE-2 (VLAN 30)
+         FE0/4 → VIRT-HOST-1 (VLAN 40)
+
+ACC-SW4: FE0/3 → VIRT-HOST-2 (VLAN 40)
+         FE0/4 → DNS-DHCP-NTP (VLAN 40)
+
+ACC-SW5: FE0/3 → BACKUP-1 (VLAN 70)
+         FE0/4 → BACKUP-2 (VLAN 70)
+
+ACC-SW6: FE0/3 → LOAD-BALANCER (VLAN 20)
+         FE0/4 → SOC-SERVER (VLAN 50)
+         FE0/5 → SIEM-SERVER (VLAN 60)
+         FE0/6 → IDS-SENSOR (VLAN 99)
+         FE0/7 → IPS-SENSOR (VLAN 99)
+→ Only allows VLAN 20 (192.168.2.0/24) to exit to WAN
+→ Blocks VLAN 10 (192.168.1.0/24) from leaving the site
+
+ROUTER7 (2911) — Site B Gateway
+text
+Copy
+Process 1, Area 0 (backbone only)
+MD5 Authentication: BANKOSPF2026
+
+Router IDs:
+- CORE-R1:    1.1.1.3
+- CORE-R2:    2.2.2.3
+- CORE-SW1:   3.3.3.1
+- CORE-SW2:   3.3.3.2
+- AGG-SW1:    5.5.5.1
+- AGG-SW2:    5.5.5.2
+
+Network Statement:
+- All routers/L3 switches: network 10.0.0.0 0.0.255.255 area 0
+- This advertises all 10.0.x.x subnets
+
+Passive Interfaces:
+- VLAN SVIs on all switches (don't send hellos to end devices)
+Interfaces:
+
+Gi0/0: 200.2.3.1/24 → WAN to Router0
+Gi0/1: 202.20.20.1/24 → VLAN 30 (Server3)
+Gi0/2: 201.10.10.1/24 → VLAN 40 (Server4)
+Routing (RIP):
+
+text
+Copy
+AS 65001 (Your Bank)
+Neighbors:
+- ISP-1 (203.0.113.1, AS 100)
+- ISP-2 (203.0.113.5, AS 200)
+
+Router IDs: Same as OSPF (1.1.1.3, 2.2.2.3)
